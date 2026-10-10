@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AirDraw | Finger Motion Canvas</title>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4.1675469240/hands.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils@0.3.1675466862/camera_utils.js"></script>
+  <style>
+    *{box-sizing:border-box}body{margin:0;min-height:100vh;background:#080b14;color:#f3f5ff;font-family:system-ui,Arial,sans-serif}
+    header{padding:22px 5%;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid #242a3d;gap:12px}
+    .logo{font-size:25px;font-weight:800;letter-spacing:-1px}.logo span{color:#7c8cff}
+    .status{font-size:12px;color:#c0c7dc;background:#171d2d;border:1px solid #303952;padding:9px 13px;border-radius:30px}
+    main{max-width:1200px;margin:auto;padding:25px 16px}.intro{margin-bottom:20px}
+    h1{font-size:clamp(26px,5vw,42px);margin:0 0 8px;letter-spacing:-1.5px}.intro p{color:#9ba7c2;line-height:1.6;margin:0}
+    .toolbar{display:flex;flex-wrap:wrap;gap:12px;align-items:center;padding:14px;margin-bottom:14px;background:#111625;border:1px solid #252d43;border-radius:16px}
+    button,select,input{font:inherit}button,select{color:#eef1ff;background:#202940;border:1px solid #37425d;border-radius:10px;padding:10px 13px;cursor:pointer}
+    button:hover{background:#34405e}.primary{background:#626ff0;border-color:#626ff0}.primary:hover{background:#7884ff}
+    .tool-label{display:flex;align-items:center;gap:8px;color:#c2c9dc;font-size:13px}
+    input[type=color]{width:36px;height:36px;padding:2px;border:1px solid #37425d;background:#202940;border-radius:8px;cursor:pointer}
+    input[type=range]{width:90px}.workspace{position:relative;overflow:hidden;border:1px solid #303952;border-radius:18px;background:#fff;min-height:280px;aspect-ratio:16/9}
+    #canvas{display:block;width:100%;height:100%;position:absolute;inset:0;touch-action:none}
+    .camera-box{position:absolute;z-index:2;right:14px;top:14px;width:155px;aspect-ratio:4/3;background:#111625;border:2px solid #7884ff;border-radius:13px;overflow:hidden}
+    #video{display:none}#cameraPreview{width:100%;height:100%;object-fit:cover;transform:scaleX(-1)}
+    .camera-caption{position:absolute;bottom:0;left:0;right:0;background:#080b14cc;color:white;font-size:10px;text-align:center;padding:5px}
+    .hint{position:absolute;bottom:14px;left:14px;background:#080b14dd;color:#e9edff;padding:9px 12px;border-radius:9px;font-size:12px;pointer-events:none;max-width:calc(100% - 28px)}
+    .instructions{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-top:16px}
+    .instruction{background:#111625;border:1px solid #252d43;border-radius:14px;padding:16px}
+    .instruction strong{display:block;margin-bottom:6px}.instruction p{color:#9ba7c2;font-size:13px;line-height:1.6;margin:0}
+    footer{text-align:center;color:#75819c;padding:25px 10px;font-size:12px}
+    @media(max-width:600px){header{padding:18px 16px}.logo{font-size:21px}main{padding:22px 12px}.workspace{aspect-ratio:4/3}.camera-box{width:105px;right:8px;top:8px}.instructions{grid-template-columns:1fr}.toolbar{gap:9px}}
+  </style>
+</head>
+<body>
+  <header><div class="logo">Air<span>Draw</span> ✦</div><div class="status" id="status">● Camera stopped</div></header>
+  <main>
+    <section class="intro"><h1>Draw with your fingers.</h1><p>Move your hand in the air. Your fingertips become your brush.</p></section>
+    <section class="toolbar">
+      <button class="primary" id="cameraButton">Start Camera</button>
+      <label class="tool-label">Color <input type="color" id="color" value="#635bff"></label>
+      <label class="tool-label">Brush <input type="range" id="brush" min="2" max="24" value="6"><span id="brushValue">6 px</span></label>
+      <button id="undoButton">Undo</button><button id="clearButton">Clear</button><button id="saveButton">Save PNG</button>
+    </section>
+    <section class="workspace" id="workspace">
+      <canvas id="canvas"></canvas>
+      <div class="camera-box"><video id="video" playsinline></video><canvas id="cameraPreview"></canvas><div class="camera-caption">LIVE HAND TRACKING</div></div>
+      <div class="hint" id="hint">Press Start Camera, then pinch thumb and index finger to draw.</div>
+    </section>
+    <section class="instructions">
+      <div class="instruction"><strong>🖐️ Find your hand</strong><p>Keep your hand visible in the camera preview and hold it in front of the camera.</p></div>
+      <div class="instruction"><strong>🤏 Pinch to draw</strong><p>Bring your thumb and index fingertip together. Move your hand to draw lines.</p></div>
+      <div class="instruction"><strong>✋ Release to stop</strong><p>Separate your fingers to lift the brush without drawing a connecting line.</p></div>
+    </section>
+  </main>
+  <footer>AirDraw · Your camera feed is processed in your browser.</footer>
+<script>
+const video=document.getElementById("video"),canvas=document.getElementById("canvas"),ctx=canvas.getContext("2d"),preview=document.getElementById("cameraPreview"),pctx=preview.getContext("2d"),workspace=document.getElementById("workspace"),status=document.getElementById("status"),hint=document.getElementById("hint"),cameraButton=document.getElementById("cameraButton");
+let handTracker=null,camera=null,running=false,drawing=false,lastPoint=null,strokes=[],currentStroke=null,cameraStream=null,lastWidth=0,lastHeight=0;
+function resizeCanvas(){const r=workspace.getBoundingClientRect(),w=Math.round(r.width),h=Math.round(r.height);if(!w||!h)return;if(w!==lastWidth||h!==lastHeight){const old=document.createElement("canvas");old.width=canvas.width;old.height=canvas.height;if(old.width&&old.height)old.getContext("2d").drawImage(canvas,0,0);canvas.width=w;canvas.height=h;lastWidth=w;lastHeight=h;if(old.width&&old.height)ctx.drawImage(old,0,0,old.width,old.height,0,0,w,h)}if(preview.width!==w||preview.height!==h){preview.width=w;preview.height=h}}
+window.addEventListener("resize",resizeCanvas);new ResizeObserver(resizeCanvas).observe(workspace);resizeCanvas();
+function setStatus(s){status.textContent=s}function resetStroke(){drawing=false;lastPoint=null;currentStroke=null}
+function drawPoint(p,c,s){ctx.fillStyle=c;ctx.beginPath();ctx.arc(p.x,p.y,s/2,0,Math.PI*2);ctx.fill()}
+function redraw(){ctx.clearRect(0,0,canvas.width,canvas.height);for(const s of strokes){if(!s.points.length)continue;ctx.strokeStyle=s.color;ctx.fillStyle=s.color;ctx.lineWidth=s.size;ctx.lineCap="round";ctx.lineJoin="round";if(s.points.length===1){drawPoint(s.points[0],s.color,s.size);continue}ctx.beginPath();ctx.moveTo(s.points[0].x,s.points[0].y);for(let i=1;i<s.points.length;i++)ctx.lineTo(s.points[i].x,s.points[i].y);ctx.stroke()}}
+function distance(a,b){return Math.hypot(a.x-b.x,a.y-b.y,a.z-b.z)}
+function onResults(results){if(!running)return;resizeCanvas();pctx.save();pctx.clearRect(0,0,preview.width,preview.height);pctx.translate(preview.width,0);pctx.scale(-1,1);pctx.drawImage(results.image,0,0,preview.width,preview.height);pctx.restore();const hands=results.multiHandLandmarks;if(!hands||!hands.length){resetStroke();setStatus("● No hand detected");hint.textContent="Show your hand clearly in the camera.";return}const lm=hands[0],index=lm[8],thumb=lm[4],point={x:(1-index.x)*canvas.width,y:index.y*canvas.height},pinching=distance(index,thumb)<.055;pctx.beginPath();pctx.arc((1-index.x)*preview.width,index.y*preview.height,pinching?8:5,0,Math.PI*2);pctx.fillStyle=pinching?"#6affba":"#ffffff";pctx.fill();pctx.strokeStyle="#625bff";pctx.lineWidth=2;pctx.stroke();if(pinching){setStatus("● Drawing");hint.textContent="Pinching detected — move your index finger!";if(!drawing){drawing=true;currentStroke={color:document.getElementById("color").value,size:Number(document.getElementById("brush").value),points:[point]};strokes.push(currentStroke);drawPoint(point,currentStroke.color,currentStroke.size)}else if(currentStroke){if(lastPoint){ctx.strokeStyle=currentStroke.color;ctx.lineWidth=currentStroke.size;ctx.lineCap="round";ctx.lineJoin="round";ctx.beginPath();ctx.moveTo(lastPoint.x,lastPoint.y);ctx.lineTo(point.x,point.y);ctx.stroke()}currentStroke.points.push(point)}lastPoint=point}else{resetStroke();setStatus("● Hand detected");hint.textContent="Pinch your thumb and index finger to draw."}}
+async function startCamera(){if(running){stopCamera();return}cameraButton.disabled=true;setStatus("● Requesting camera...");hint.textContent="Allow camera access when your browser asks.";try{if(!navigator.mediaDevices?.getUserMedia)throw new Error("Camera requires HTTPS or localhost.");cameraStream=await navigator.mediaDevices.getUserMedia({video:{facingMode:"user",width:{ideal:640},height:{ideal:480}},audio:false});video.srcObject=cameraStream;await video.play();handTracker=new Hands({locateFile:file=>"https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4.1675469240/"+file});handTracker.setOptions({maxNumHands:1,modelComplexity:1,minDetectionConfidence:.6,minTrackingConfidence:.5});handTracker.onResults(onResults);camera=new Camera(video,{onFrame:async()=>{if(running&&handTracker)await handTracker.send({image:video})},width:640,height:480});running=true;await camera.start();cameraButton.textContent="Stop Camera";cameraButton.classList.remove("primary");setStatus("● Camera active");hint.textContent="Pinch thumb and index finger to start drawing."}catch(e){console.error(e);stopCamera();setStatus("● Camera unavailable");hint.textContent="Allow camera permission, use HTTPS, and check your internet connection.";alert("Could not start hand tracking.\n\nCheck camera permission, HTTPS, and your internet connection.\n\nDetails: "+e.message)}finally{cameraButton.disabled=false}}
+function stopCamera(){running=false;resetStroke();if(camera){try{camera.stop()}catch(_){}camera=null}if(handTracker){try{handTracker.close()}catch(_){}handTracker=null}if(cameraStream){cameraStream.getTracks().forEach(t=>t.stop());cameraStream=null}video.srcObject=null;pctx.clearRect(0,0,preview.width,preview.height);cameraButton.textContent="Start Camera";cameraButton.classList.add("primary");setStatus("● Camera stopped");hint.textContent="Press Start Camera to draw again."}
+cameraButton.addEventListener("click",startCamera);document.getElementById("brush").addEventListener("input",e=>document.getElementById("brushValue").textContent=e.target.value+" px");
+document.getElementById("clearButton").addEventListener("click",()=>{strokes=[];redraw();resetStroke()});document.getElementById("undoButton").addEventListener("click",()=>{strokes.pop();resetStroke();redraw()});
+document.getElementById("saveButton").addEventListener("click",()=>{const a=document.createElement("a");a.download="airdraw-artwork.png";a.href=canvas.toDataURL("image/png");a.click()});
+let pointerDrawing=false;canvas.addEventListener("pointerdown",e=>{if(running)return;pointerDrawing=true;canvas.setPointerCapture(e.pointerId);const r=canvas.getBoundingClientRect(),p={x:e.clientX-r.left,y:e.clientY-r.top};currentStroke={color:document.getElementById("color").value,size:Number(document.getElementById("brush").value),points:[p]};strokes.push(currentStroke);drawPoint(p,currentStroke.color,currentStroke.size)});
+canvas.addEventListener("pointermove",e=>{if(!pointerDrawing||!currentStroke)return;const r=canvas.getBoundingClientRect(),p={x:e.clientX-r.left,y:e.clientY-r.top},pts=currentStroke.points,prev=pts[pts.length-1];ctx.strokeStyle=currentStroke.color;ctx.lineWidth=currentStroke.size;ctx.lineCap="round";ctx.lineJoin="round";ctx.beginPath();ctx.moveTo(prev.x,prev.y);ctx.lineTo(p.x,p.y);ctx.stroke();pts.push(p)});
+function endPointer(){pointerDrawing=false;currentStroke=null}canvas.addEventListener("pointerup",endPointer);canvas.addEventListener("pointercancel",endPointer);canvas.addEventListener("lostpointercapture",endPointer);
+</script>
+</body>
+</html>
