@@ -1,19 +1,16 @@
-# AirDraw — Finger Motion Canvas
+# AirDraw — smoother version
 
-A single-page website that lets you draw on a canvas by pinching your thumb and index finger in front of your camera. Includes color selection, brush size, undo, clear, PNG export, and mouse/touch fallback.
+This update is optimized to reduce finger-drawing lag:
+- Uses MediaPipe's faster `modelComplexity: 0` setting.
+- Requests a smaller 320×240 camera stream.
+- Keeps the camera preview canvas small instead of rendering it at the full drawing-area resolution every frame.
+- Prevents overlapping hand-tracking requests.
+- Applies light fingertip smoothing to reduce jitter.
 
-## Run locally
-Camera access generally requires HTTPS or `localhost`. You can use VS Code with the Live Server extension, then open the local URL in a modern browser.
+## Publish the update
+1. Extract this ZIP.
+2. Open your existing GitHub repository.
+3. Replace the old `index.html` with the new one and commit the change.
+4. Wait for GitHub Pages to deploy, then reload the website. If your phone shows the old version, close and reopen the tab.
 
-## Publish on GitHub Pages
-1. Create a public repository named `airdraw`.
-2. Upload `index.html` and this `README.md` to the repository root.
-3. Open **Settings → Pages**.
-4. Choose **Deploy from a branch**, branch `main`, folder `/(root)`, and Save.
-5. Visit `https://YOUR-USERNAME.github.io/airdraw/` after deployment finishes.
-
-## Notes
-- Internet access is needed to load MediaPipe from jsDelivr.
-- Allow camera access when prompted.
-- Use HTTPS or localhost for camera access.
-- The camera stream is processed in the browser; this project does not upload video to a server.
+Camera access requires HTTPS or localhost. MediaPipe models load from a CDN, so internet access is required.
